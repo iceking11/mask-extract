@@ -16,6 +16,9 @@ import bmesh
 from bpy.props import *
 
 def mask_to_vertex_group(obj, name, pull):
+    wm = bpy.context.window_manager
+    maskcount = 0
+    
     vgroup = obj.vertex_groups.new(name)
     bpy.ops.object.vertex_group_set_active(group=vgroup.name)
     
@@ -25,18 +28,21 @@ def mask_to_vertex_group(obj, name, pull):
     if deform_layer is None: deform_layer = bm.verts.layers.deform.new()
     mask = bm.verts.layers.paint_mask.active
     if mask is not None:
+        wm.mask_detect_layer = True
         for v in bm.verts:
             if v[mask] == 1:
+                maskcount += 1
                 v.select = True
                 v[deform_layer][vgroup.index] = 1.0
                 n = (v.normal) * pull
                 v.co += n
             else:
-                v.select = False                   
+                v.select = False
     else:
-        for v in bm.verts:
-            v[deform_layer][vgroup.index] = 1.0
-  
+        wm.mask_detect_layer = False                                  
+    
+    if maskcount == 0: wm.mask_detect_layer = False
+ 
     bm.to_mesh(obj.data)
     bm.free()
     pass
@@ -62,6 +68,21 @@ def duplicateObject(scene, name, copyobj):
  
     return ob_new
 
+def smoothextracted():
+    wm = bpy.context.window_manager    
+    for i in range(wm.mask_smooth_normals):
+        md = bpy.context.active_object.modifiers.new('smooth_extract', 'SMOOTH')
+        md.iterations = 5
+    
+        bpy.ops.object.modifier_apply(apply_as='DATA', modifier='smooth_extract')
+
+def isolate(obj):
+    for SelectedObject in bpy.context.selected_objects:
+        if SelectedObject != obj :
+            SelectedObject.select = False
+    
+    obj.select = True             
+
 class MaskExtract(bpy.types.Operator):
     '''Decimate Masked Areas'''
     bl_idname = "mask.extraction"
@@ -82,10 +103,23 @@ class MaskExtract(bpy.types.Operator):
             self.report({'WARNING'}, "Exit Dyntopo First!")
             return {'FINISHED'}
         
+        #isolate target mesh
+        isolate(activeObj)
+        
         #convert mask to vgroup
         duplicateObject(context.scene.name, activeObj.name, activeObj)
         
         mask_to_vertex_group(context.active_object, vname, wm.mask_extract_offset)
+        
+        if wm.mask_detect_layer == True:
+            self.report({'WARNING'}, "Masked Areas Present!")
+        else:
+            self.report({'WARNING'}, "No Masked Areas!")
+            activeObj.select = False
+            bpy.ops.object.delete()
+            activeObj.select = True 
+            bpy.context.scene.objects.active = bpy.data.objects[activeObj.name]
+            return {'FINISHED'}                                        
         
         #place/apply mask modifier
         md = bpy.context.active_object.modifiers.new(modnam, 'MASK')
@@ -94,11 +128,8 @@ class MaskExtract(bpy.types.Operator):
         bpy.ops.object.modifier_apply(apply_as='DATA', modifier=modnam)        
         
         #place/apply smooth modifier
-        md = bpy.context.active_object.modifiers.new('smooth1', 'SMOOTH')
-        md.iterations = wm.mask_smooth_normals
-        
-        bpy.ops.object.modifier_apply(apply_as='DATA', modifier='smooth1')  
-        
+        smoothextracted()
+                
         #place/apply solidify modifier
         md = bpy.context.active_object.modifiers.new(modnam + "solid", 'SOLIDIFY')
         md.use_rim = True
@@ -108,20 +139,15 @@ class MaskExtract(bpy.types.Operator):
             bpy.ops.object.modifier_apply(apply_as='DATA', modifier=modnam + "solid")        
         
             #place/apply smooth modifier
-            md = bpy.context.active_object.modifiers.new('smooth2', 'SMOOTH')
-            md.iterations = wm.mask_smooth_normals
-            
-            bpy.ops.object.modifier_apply(apply_as='DATA', modifier='smooth2')          
+            smoothextracted()    
         
+        #remove vgroup
         if vname in bpy.context.active_object.vertex_groups:
             bpy.ops.object.vertex_group_set_active(group=vname)            
             bpy.ops.object.vertex_group_remove(all=False)   
-        
-        for SelectedObject in context.selected_objects :
-            if SelectedObject != activeObj :
-                SelectedObject.select = False
-        
-        activeObj.select = True 
+            
+        #select target mesh
+        isolate(activeObj)
         bpy.context.scene.objects.active = bpy.data.objects[activeObj.name]                
         
         return {'FINISHED'}         
@@ -155,8 +181,9 @@ def register():
     
     bpy.types.WindowManager.mask_extract_offset = FloatProperty(min = 0, max = 1, step = 0.1, precision = 3, default = .01)
     bpy.types.WindowManager.mask_extract_thickness = FloatProperty(min = 0, max = 1, step = 0.1, precision = 3, default = .025)    
-    bpy.types.WindowManager.mask_smooth_normals = IntProperty(min = 0, max = 30, default = 15)
-    bpy.types.WindowManager.mask_solid_apply = BoolProperty(default=True)          
+    bpy.types.WindowManager.mask_smooth_normals = IntProperty(min = 0, max = 10, default = 1)
+    bpy.types.WindowManager.mask_solid_apply = BoolProperty(default=True)
+    bpy.types.WindowManager.mask_detect_layer = BoolProperty(default=False)
   
 def unregister():
     bpy.utils.unregister_module(__name__)
