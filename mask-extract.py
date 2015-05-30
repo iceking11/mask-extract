@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "Mask Decimate",
+    "name": "Mask Extract",
     "author": "Ian Lloyd Dela Cruz",
     "version": (1, 0),
     "blender": (2, 7, 5),
@@ -58,7 +58,7 @@ def duplicateObject(scene, name, copyobj):
     # Link new object to the given scene and select it
     bpy.context.scene.objects.link(ob_new)
     ob_new.select = True
-    bpy.context.scene.objects.active = bpy.data.objects[ob_new.name]     
+    bpy.context.scene.objects.active = bpy.data.objects[ob_new.name]
  
     return ob_new
 
@@ -87,18 +87,31 @@ class MaskExtract(bpy.types.Operator):
         
         mask_to_vertex_group(context.active_object, vname, wm.mask_extract_offset)
         
-        #place decimate modifier
+        #place/apply mask modifier
         md = bpy.context.active_object.modifiers.new(modnam, 'MASK')
         md.vertex_group = vname
         
-        #place solidify modifier
+        bpy.ops.object.modifier_apply(apply_as='DATA', modifier=modnam)        
+        
+        #place/apply smooth modifier
+        md = bpy.context.active_object.modifiers.new('smooth1', 'SMOOTH')
+        md.iterations = wm.mask_smooth_normals
+        
+        bpy.ops.object.modifier_apply(apply_as='DATA', modifier='smooth1')  
+        
+        #place/apply solidify modifier
         md = bpy.context.active_object.modifiers.new(modnam + "solid", 'SOLIDIFY')
         md.use_rim = True
-        md.thickness = wm.mask_extract_thickness        
-
-        #apply modifier and remove vgroup
-        bpy.ops.object.modifier_apply(apply_as='DATA', modifier=modnam)
-        bpy.ops.object.modifier_apply(apply_as='DATA', modifier=modnam + "solid")
+        md.thickness = wm.mask_extract_thickness
+        
+        if wm.mask_solid_apply == True:
+            bpy.ops.object.modifier_apply(apply_as='DATA', modifier=modnam + "solid")        
+        
+            #place/apply smooth modifier
+            md = bpy.context.active_object.modifiers.new('smooth2', 'SMOOTH')
+            md.iterations = wm.mask_smooth_normals
+            
+            bpy.ops.object.modifier_apply(apply_as='DATA', modifier='smooth2')          
         
         if vname in bpy.context.active_object.vertex_groups:
             bpy.ops.object.vertex_group_set_active(group=vname)            
@@ -131,31 +144,22 @@ class MaskDecimationPanel(bpy.types.Panel):
         row_sw = layout.row(align=False)
         row_sw.prop(wm, "mask_extract_offset", "Offset")
         row_sw = layout.row(align=False)
-        row_sw.prop(wm, "mask_extract_thickness", "Thickness")                 
+        row_sw.prop(wm, "mask_extract_thickness", "Thickness")
+        row_sw = layout.row(align=False)
+        row_sw.prop(wm, "mask_smooth_normals", "Smooth")
+        row_sw = layout.row(align=False)
+        row_sw.prop(wm, "mask_solid_apply", "Apply Solidify")                                       
        
 def register():
     bpy.utils.register_module(__name__)
     
-    bpy.types.WindowManager.mask_extract_offset = FloatProperty(min = 0, max = 1, step = 0.1, precision = 3, default = .1)
-    bpy.types.WindowManager.mask_extract_thickness = FloatProperty(min = 0, max = 1, step = 0.1, precision = 3, default = .05)    
+    bpy.types.WindowManager.mask_extract_offset = FloatProperty(min = 0, max = 1, step = 0.1, precision = 3, default = .01)
+    bpy.types.WindowManager.mask_extract_thickness = FloatProperty(min = 0, max = 1, step = 0.1, precision = 3, default = .025)    
+    bpy.types.WindowManager.mask_smooth_normals = IntProperty(min = 0, max = 30, default = 15)
+    bpy.types.WindowManager.mask_solid_apply = BoolProperty(default=True)          
   
 def unregister():
     bpy.utils.unregister_module(__name__)
     
 if __name__ == "__main__":
     register()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
